@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="http://jsbsim.sf.net/JSBSimScript.xsl"?>
+<runscript xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="http://jsbsim.sf.net/JSBSimScript.xsd"
+    name="C310 定速航行程序">
+
+  <use aircraft="c310" initialize="lyj_init"/>
+
+  <run start="0.0" end="300" dt="0.01">
+
+    <!-- 阶段0：飞机进入巡航状态,高度保持550英尺, 航向朝北,飞行速度220英尺/秒 -->
+    <event name="0. Enter Cruise State">
+      <condition>simulation/sim-time-sec gt 0</condition>
+      <repeat>0</repeat>
+      <set name="fcs/mixture-cmd-norm[0]" value="1"/>
+      <set name="fcs/mixture-cmd-norm[1]" value="1"/>
+      <set name="fcs/advance-cmd-norm[0]" value="1.0"/>
+      <set name="fcs/advance-cmd-norm[1]" value="1.0"/>
+      <set name="propulsion/magneto_cmd" value="3"/>
+      <set name="propulsion/starter_cmd" value="1"/>
+
+      <!-- 油门和初速度匹配 -->
+      <set name="fcs/throttle-cmd-norm[0]" value="0.954"/>
+      <set name="fcs/throttle-cmd-norm[1]" value="0.954"/>
+
+      <!-- 飞行高度保持（550英尺）-->
+      <set name="ap/altitude_setpoint" value="550.0"/>
+      <set name="ap/altitude_hold" value="1"/>
+
+      <!-- 航向保持（朝正北方向飞行）-->
+      <set name="ap/heading_setpoint" value="0"/>
+      <set name="ap/heading-setpoint-select" value="0"/>
+      <set name="ap/heading_hold" value="1"/>
+      <set name="ap/attitude_hold" value="0"/>
+      <!-- 设定侧滑角控制器增益 -->
+      <set name="ap/yaw_damper" value="1"/>
+
+    </event>
+
+    <!-- 阶段1：开启Airspeed Hold,达到给定值(150英尺/秒)并保持 -->
+    <event name="1. Airspeed Hold">
+      <condition>simulation/sim-time-sec gt 100</condition>
+      <repeat>0</repeat>
+      <!-- 速度保持（150英尺/秒） -->
+      <set name="ap/airspeed_setpoint" value="150.0"/>
+      <set name="ap/airspeed_hold" value="1"/>
+    </event>
+
+    <!-- 阶段2：开启Airspeed Hold,达到给定值(200英尺/秒)并保持 -->
+    <event name="1. Airspeed Hold">
+      <condition>simulation/sim-time-sec gt 200</condition>
+      <repeat>0</repeat>
+      <!-- 速度保持（200英尺/秒） -->
+      <set name="ap/airspeed_setpoint" value="200.0"/>
+      <set name="ap/airspeed_hold" value="1"/>
+    </event>
+
+  </run>
+
+  <output name="c310_aptest.csv" type="CSV" rate="100" file="unitconversions.xml">
+    <velocities> ON </velocities>
+    <position> ON </position>
+    <!-- 飞机相对地面高度、当前纬度经度、前向速度 -->
+    <property caption="position/h-agl-ft">position/h-agl-ft</property>
+    <property caption="latitude_rad">position/lat-geod-rad</property>
+    <property caption="longitude_rad">position/long-gc-rad</property>
+    <property caption="velocities/u-fps">velocities/u-fps</property>
+
+    <!-- 新增地面速度北向与东向分量 -->
+    <property caption="velocities/vg-north-fps">velocities/v-north-fps</property>
+    <property caption="velocities/vg-east-fps">velocities/v-east-fps</property>
+
+    <!-- 飞机pitch、roll、yaw的角度及其角速度和加速度 -->
+    <property name="attitude/roll-deg" caption="Roll (deg)"/>
+    <property name="attitude/pitch-deg" caption="Pitch (deg)"/>
+    <property name="attitude/yaw-deg" caption="Yaw (deg)"/>
+    <property name="attitude-rate/roll-deg_sec" caption="Roll Rate (deg/s)"/>
+    <property name="attitude-rate/pitch-deg_sec" caption="Pitch Rate (deg/s)"/>
+    <property name="attitude-rate/yaw-deg_sec" caption="Yaw Rate (deg/s)"/>
+    <property name="attitude-accel/roll-deg_sec2" caption="Roll Accel (deg/s²)"/>
+    <property name="attitude-accel/pitch-deg_sec2" caption="Pitch Accel (deg/s²)"/>
+    <property name="attitude-accel/yaw-deg_sec2" caption="Yaw Accel (deg/s²)"/>
+
+    <!-- 风速日志 -->
+    <property caption="atmosphere/wind-north-fps"/>
+    <property caption="atmosphere/wind-east-fps"/>
+
+    <!-- 飞机的气动侧滑角（单位：度） -->
+    <property caption="aero/beta-deg">aero/beta-deg</property>
+    <!-- 飞机在机体坐标系中的侧向速度（右为正,单位：英尺/秒） -->
+    <property caption="velocities/v-fps">velocities/v-fps</property>
+    <!-- 方向舵位置（归一化：-1 左满舵,0 中立,1 右满舵） -->
+    <property caption="fcs/rudder-pos-norm">fcs/rudder-pos-norm</property>
+    <property caption="fcs/mixture-pos-norm[0]">fcs/mixture-pos-norm[0]</property>
+    <property caption="fcs/mixture-pos-norm[1]">fcs/mixture-pos-norm[1]</property>
+
+    <!-- 自动驾驶仪里的参数 -->
+    <property caption="aero/beta-rad">aero/beta-rad</property>
+    <property caption="velocities/ve-fps">velocities/ve-fps</property>
+    <property caption="ap/yaw_damper">ap/yaw_damper</property>
+    <property caption="ap/rudder_cmd">ap/rudder_cmd</property>
+    <property caption="fcs/throttle-cmd-norm-temp">fcs/throttle-cmd-norm-temp</property>
+    <property caption="ap/airspeed-error-throttle">ap/airspeed-error-throttle</property>
+    <property caption="ap/airspeed_setpoint">ap/airspeed_setpoint</property>
+    <property caption="velocities/vc-kts">velocities/vc-kts</property>
+    <property caption="ap/airspeed-throttle-ff">ap/airspeed-throttle-ff</property>
+    <property caption="ap/airspeed-pi-throttle">ap/airspeed-pi-throttle</property>
+    <property caption="ap/airspeed_hold">ap/airspeed_hold</property>
+    <property caption="ap/airspeed-error-origin">ap/airspeed-error-origin</property>
+    <property caption="ap/airspeed-pi-throttle">ap/airspeed-pi-throttle</property>
+
+    <property caption="fcs/heading-roll-error">fcs/heading-roll-error</property>
+    <property caption="fcs/roll-command-selector">fcs/roll-command-selector</property>
+    <property caption="fcs/heading-corrected">fcs/heading-corrected</property>
+
+    <!-- 飞机机头相对于真北的航向角 -->
+    <property caption="fcs/heading-true-degrees">fcs/heading-true-degrees</property>
+
+    <!-- 发动机 0（通常是左发）的油门指令归一化值 -->
+    <property caption="fcs/throttle-cmd-norm[0]">fcs/throttle-cmd-norm[0]</property>
+    <!-- 空速（Calibrated Airspeed）,单位为节（knots） -->
+    <property caption="velocities/vc-kts">velocities/vc-kts</property>
+
+  </output>
+</runscript>

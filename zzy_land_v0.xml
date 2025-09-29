@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="http://jsbsim.sf.net/JSBSimScript.xsl"?>
+<runscript xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="http://jsbsim.sf.net/JSBSimScript.xsd"
+    name="C310 标准自动降落程序">
+
+  <description>符合标准程序的平稳自动降落</description>
+  <use aircraft="c310" initialize="ellington"/>
+
+  <run start="0.0" end="1000" dt="0.01">
+    <event name="初始化飞行">
+      <description>
+        启动引擎并设置初始航向和航点，开启航向保持模式。
+      </description>
+      <condition>simulation/sim-time-sec ge 0.25</condition>
+      <set name="fcs/mixture-cmd-norm[0]" value="1"/>
+      <set name="fcs/mixture-cmd-norm[1]" value="1"/>
+      <set name="fcs/advance-cmd-norm[0]" value="1.0"/>
+      <set name="fcs/advance-cmd-norm[1]" value="1.0"/>
+      <set name="propulsion/magneto_cmd" value="3"/>
+      <set name="fcs/throttle-cmd-norm[0]" value="0.85"/>
+      <set name="fcs/throttle-cmd-norm[1]" value="0.85"/>
+      <set name="propulsion/starter_cmd" value="1"/>
+
+      <set name="ap/altitude_setpoint" value="600.0"/>
+      <set name="ap/altitude_hold" value="1"/>
+      <set name="ap/attitude_hold" value="0"/>
+
+      <!-- Initial WP0 - 距离跑道8海里的进场点 -->
+      <set name="guidance/target_wp_latitude_rad" value="0.515100"/>
+      <set name="guidance/target_wp_longitude_rad" value="-1.659178"/>
+      <set name="ap/heading_setpoint" value="0"/>
+      <set name="ap/heading_hold" value="1"/>
+      <set name="ap/heading-setpoint-select" value="1"/>
+      <set name="ap/active-waypoint" value="0"/>
+      <set name="gear/gear-cmd-norm" value="0"/>
+    </event>
+
+    <!-- 1-Approach WP1 - 距离跑道不到6海里（约36000ft） -->
+    <event name="设置进场航点1">
+      <condition>
+        simulation/sim-time-sec ge 10
+      </condition>
+      <set name="guidance/target_wp_latitude_rad" value="0.515700"/>
+      <set name="guidance/target_wp_longitude_rad" value="-1.659178"/>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="550.0" tc="5.0"/>
+      <set name="ap/active-waypoint" value="1"/>
+    </event>
+
+    <!-- 4-Landing Point - 跑道入口 -->
+    <event name="设置着陆点">
+      <condition>
+        guidance/wp-distance lt 1000
+        ap/active-waypoint eq 3
+      </condition>
+      <set name="guidance/target_wp_latitude_rad" value="0.517355"/>
+      <set name="guidance/target_wp_longitude_rad" value="-1.659178"/>
+      <set name="ap/active-waypoint" value="4"/>
+    </event>
+
+    <!-- 3-Final Approach - 距离跑道不到2海里（约12000ft） -->
+    <event name="设置最终进场航点">
+      <condition>
+        guidance/wp-distance lt 1000
+        ap/active-waypoint eq 2
+      </condition>
+      <set name="guidance/target_wp_latitude_rad" value="0.516900"/>
+      <set name="guidance/target_wp_longitude_rad" value="-1.659178"/>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="400.0" tc="7.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.70" tc="4.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.70" tc="4.0"/>
+      <set name="fcs/flap-cmd-norm" action="FG_EXP" value="0.50" tc="3.0"/>
+      <set name="ap/active-waypoint" value="3"/>
+    </event>
+
+    <!-- 2-Approach WP2 - 距离跑道不到4海里（约24000ft） -->
+    <event name="设置进场航点2">
+      <condition>
+        guidance/wp-distance lt 1000
+        ap/active-waypoint eq 1
+      </condition>
+      <set name="guidance/target_wp_latitude_rad" value="0.516300"/>
+      <set name="guidance/target_wp_longitude_rad" value="-1.659178"/>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="500.0" tc="6.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.75" tc="4.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.75" tc="4.0"/>
+      <set name="fcs/flap-cmd-norm" action="FG_EXP" value="0.25" tc="3.0"/>
+      <set name="ap/active-waypoint" value="2"/>
+    </event>
+
+
+    <!-- 5-Landing prepare-进入下滑道-->
+    <!-- 3海里 400ft 65%throttle 75%flap,建立标准3度下滑角-->
+    <event name="进入下滑道">
+      <condition>
+        ap/active-waypoint eq 4
+        guidance/wp-distance le 15000
+      </condition>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="400.0" tc="8.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.65" tc="5.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.65" tc="5.0"/>
+      <set name="fcs/flap-cmd-norm" action="FG_EXP" value="0.75" tc="3.0"/>
+    </event>
+
+    <!-- 6-Landing prepare-放下起落架-->
+    <!-- 2海里 350ft 62%throttle 75%flap,准备降落构型-->
+    <event name="放下起落架">
+      <condition>
+        ap/active-waypoint eq 4
+        guidance/wp-distance le 12000
+      </condition>
+      <set name="gear/gear-cmd-norm" value="1"/>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="350.0" tc="7.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.62" tc="4.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.62" tc="4.0"/>
+    </event>
+
+    <!-- 7-Landing phase1 - 1海里外开始最终进场 -->
+    <!-- 1海里外 300ft 60%throttle 100%flap,全襟翼构型-->
+    <event name="最终进场1">
+      <condition>
+        ap/active-waypoint eq 4
+        guidance/wp-distance le 8000
+      </condition>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="300.0" tc="6.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.60" tc="4.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.60" tc="4.0"/>
+      <set name="fcs/flap-cmd-norm" action="FG_EXP" value="1.0" tc="3.0"/>
+    </event>
+
+    <!-- 8-Landing phase2 - 1海里处进一步下降 -->
+    <!-- 1海里 200ft 58%throttle 100%flap-->
+    <event name="最终进场2">
+      <condition>
+        ap/active-waypoint eq 4
+        guidance/wp-distance le 6000
+      </condition>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="200.0" tc="6.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.58" tc="3.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.58" tc="3.0"/>
+    </event>
+
+    <!-- 9-Landing phase3 - 半海里外进入短final -->
+    <!-- 0.5海里 150ft 55%throttle 100%flap-->
+    <event name="短final">
+      <condition>
+        ap/active-waypoint eq 4
+        guidance/wp-distance le 3000
+      </condition>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="150.0" tc="5.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.55" tc="3.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.55" tc="3.0"/>
+    </event>
+
+    <!-- 10-Landing phase4 - 0.3海里外开始最后调整 -->
+    <!-- 0.3海里 100ft 50%throttle 100%flap-->
+    <event name="最后调整">
+      <condition>
+        ap/active-waypoint eq 4
+        guidance/wp-distance le 2000
+      </condition>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="100.0" tc="5.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.50" tc="2.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.50" tc="2.0"/>
+    </event>
+
+    <!-- 11-Landing phase5 - 接近跑道入口拉平 -->
+    <!-- 40ft 45%throttle 100%flap-->
+    <event name="拉平">
+      <condition>
+        ap/active-waypoint eq 4
+        position/h-agl-ft lt 100
+        guidance/wp-distance le 1000
+      </condition>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="40.0" tc="3.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.45" tc="1.5"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.45" tc="1.5"/>
+    </event>
+
+    <!-- 12-Landing phase6 - 接地前最后拉平 -->
+    <!-- 10ft 35%throttle 100%flap,最终姿态调整-->
+    <event name="接地前拉平">
+      <condition>
+        position/h-agl-ft lt 50
+      </condition>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="10.0" tc="2.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.35" tc="1.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.35" tc="1.0"/>
+    </event>
+
+    <!-- 13-Landing phase7 - 接地 -->
+    <!-- 0ft 25%throttle 100%flap-->
+    <event name="接地">
+      <condition>
+        position/h-agl-ft lt 20
+      </condition>
+      <set name="ap/altitude_setpoint" action="FG_EXP" value="0.0" tc="2.0"/>
+      <set name="fcs/throttle-cmd-norm[0]" action="FG_EXP" value="0.25" tc="1.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" action="FG_EXP" value="0.25" tc="1.0"/>
+      <set name="ap/altitude_hold" value="0"/>
+      <notify format="kml">
+        <property caption="velocities/vc-kts"> velocities/vc-kts </property>
+      </notify>
+    </event>
+
+    <!-- 14-Landing phase8 - 接地后反推 -->
+    <!-- 0ft 0%throttle 100%flap,刹车,控制居中-->
+    <event name="接地后反推">
+      <condition>
+        position/h-agl-ft lt 5.0
+        velocities/vc-kts lt 100
+      </condition>
+      <set name="fcs/throttle-cmd-norm[0]" value="0.0"/>
+      <set name="fcs/throttle-cmd-norm[1]" value="0.0"/>
+      <set name="fcs/speedbrake-cmd-norm" value="1.0"/>
+      <set name="fcs/left-brake-cmd-norm" value="1.0"/>
+      <set name="fcs/right-brake-cmd-norm" value="1.0"/>
+      <notify format="kml">
+        <property caption="position/h-agl-ft"> position/h-agl-ft </property>
+        <property caption="velocities/vc-kts"> velocities/vc-kts </property>
+      </notify>
+    </event>
+
+    <!-- 停止仿真 -->
+    <event name="停止仿真">
+      <condition>
+        position/h-agl-ft lt 5.0
+        velocities/vc-kts lt 50
+      </condition>
+      <set name="simulation/terminate" value="1"/>
+      <notify format="kml">
+        <property caption="position/h-agl-ft"> position/h-agl-ft </property>
+        <property caption="velocities/vc-kts"> velocities/vc-kts </property>
+      </notify>
+    </event>
+
+  </run>
+
+  <output name="c3104_waypoint.csv" type="CSV" rate="100" file="unitconversions.xml">
+    <velocities> ON </velocities>
+    <position> ON </position>
+    <property caption="guidance/wp-distance">guidance/wp-distance</property>
+    <property caption="ap/active-waypoint">ap/active-waypoint</property>
+    <property caption="position/h-agl-ft">position/h-agl-ft</property>
+    <property caption="ap/altitude_setpoint">ap/altitude_setpoint</property>
+    <property caption="velocities/vc-kts">velocities/vc-kts</property>
+    <property caption="attitude/theta-deg">attitude/theta-deg</property>
+    <property caption="fcs/throttle-cmd-norm[0]">fcs/throttle-cmd-norm[0]</property>
+    <property caption="fcs/flap-pos-norm">fcs/flap-pos-norm</property>
+    <property caption="gear/gear-pos-norm">gear/gear-pos-norm</property>
+
+    <property caption="velocities/p-rad_sec">velocities/p-rad_sec</property>
+    <property caption="velocities/q-rad_sec">velocities/q-rad_sec</property>
+    <property caption="velocities/r-rad_sec">velocities/r-rad_sec</property>
+    <property caption="accelerations/udot-ft_sec2">accelerations/udot-ft_sec2</property>
+    <property caption="accelerations/vdot-ft_sec2">accelerations/vdot-ft_sec2</property>
+    <property caption="accelerations/wdot-ft_sec2">accelerations/wdot-ft_sec2</property>
+  </output>
+</runscript>

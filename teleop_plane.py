@@ -1,0 +1,133 @@
+import jsbsim
+import threading
+import time
+from pynput import keyboard
+from fcs_core import AircraftSimulation
+from flight_visualizer import ChartVisualizer
+# qezc是自动驾驶的偏航和升降高度功能
+# ws是油门ad是方向舵
+# 上下控制升降舵，左右控制副翼
+
+# 全局变量，存储当前的键盘状态（最新输入）
+current_key = None
+lock = threading.Lock()
+
+class FlightVariable:
+    def __init__(self, simulation, name, min=0.0, max=1.0, step=0.05, initial=0.0):
+        self.simulation = simulation
+        self.name = name
+        self.min = min
+        self.max = max
+        self.step = step
+        self.value = initial
+    
+    @property
+    def value(self):
+        return self._value
+    
+    @value.setter
+    def value(self, v):
+        self._value = max(self.min, min(self.max, v))
+        self.simulation.add_command(self.name, self._value)
+
+     
+    def increase(self):
+        self.value += self.step
+
+    def decrease(self):
+        self.value -= self.step
+
+sim = AircraftSimulation(log_csv="c310_teleop.csv")
+
+throttle0 = FlightVariable(simulation=sim, name="fcs/throttle-cmd-norm[0]", min=0.0, max=1.0, step=0.01, initial=0.954)
+throttle1 = FlightVariable(simulation=sim, name="fcs/throttle-cmd-norm[1]", min=0.0, max=1.0, step=0.01, initial=0.954)
+rudder = FlightVariable(simulation=sim, name="fcs/rudder-cmd-norm", min=-1.0, max=1.0, step=0.05, initial=0.0)
+elevator = FlightVariable(simulation=sim, name="fcs/elevator-cmd-norm", min=-1.0, max=1.0, step=0.05, initial=0.0)
+aileron = FlightVariable(simulation=sim, name="fcs/aileron-cmd-norm", min=-1.0, max=1.0, step=0.05, initial=0.0)
+
+def on_press(key):
+    global current_key
+    try:
+        with lock:
+            current_key = key.char  # 普通字符键 
+    except AttributeError:
+        with lock:
+            current_key = str(key)  # 特殊键
+
+def on_release(key):
+    global current_key
+    # 松开键时清空
+    with lock:
+        current_key = None
+    # if key == keyboard.Key.esc:
+    #     return False
+
+def keyboard_listener():
+    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+        listener.join()
+
+def set_controls_to_jsbsim():
+    global throttle, rudder, elevator, aileron
+    while True:
+        with lock:
+            key = current_key
+        if key:
+            if key == 'w':
+                throttle0.increase()
+                throttle1.increase()
+                print(f"油门动作：加 当前值:{throttle0.value:.2f}")
+            elif key == 's':
+                throttle0.decrease()
+                throttle1.decrease()
+                print(f"油门动作：减 当前值:{throttle0.value:.2f}")
+            elif key == 'a':
+                rudder.decrease()
+                print(f"方向舵动作：左 当前值:{rudder.value:.2f}")
+            elif key == 'd':
+                rudder.increase()
+                print(f"方向舵动作：右 当前值:{rudder.value:.2f}")
+            elif key == 'Key.up':
+                elevator.increase()
+                print(f"升降舵动作：上 当前值:{elevator.value:.2f}")
+            elif key == 'Key.down':
+                elevator.decrease()
+                print(f"升降舵动作：下 当前值:{elevator.value:.2f}")
+            elif key == 'Key.left':
+                aileron.decrease()
+                print(f"副翼动作：左滚转 当前值:{aileron.value:.2f}")
+            elif key == 'Key.right':
+                aileron.increase()
+                print(f"副翼动作：右滚转 当前值:{aileron.value:.2f}")
+        # 控制频率20hz
+        time.sleep(0.05)
+
+def get_states_from_jsbsim():
+    pass
+
+def main():
+    key_t = threading.Thread(target=keyboard_listener, daemon=True)
+    in_t = threading.Thread(target=set_controls_to_jsbsim, daemon=True)
+    out_t = threading.Thread(target=get_states_from_jsbsim, daemon=True)
+    key_t.start()
+    in_t.start()
+    out_t.start()
+    sim.run_simulation(initial_task="cruise")
+
+if __name__ == "__main__":
+    main()
+
+    from flight_visualizer import CSVVisualizer
+    csv_vis = CSVVisualizer("c310_teleop.csv")
+    csv_vis.plot(
+    y_columns=['altitude_ft','vc_kts'],
+    titles=['Altitude','Velocity'],
+)
+    csv_vis.plot_combined(
+    y_columns=['roll','pitch','yaw'],
+    labels=['Roll','Pitch','Yaw'],
+    title='Aircraft Attitude vs Time'
+)
+    csv_vis.plot(
+    y_columns=['lat_deg','lon_deg'],
+    titles=['Latitude','Longitude'],
+)
