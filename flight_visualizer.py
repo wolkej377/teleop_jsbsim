@@ -26,6 +26,7 @@ class SimDataSender:
         data = (json.dumps(msg) + "\n").encode('utf-8')
         try:
             self.sock.sendto(data, self.addr)
+            time.sleep(0.0001)
         except OSError as e:
             # 服务端未启动时静默跳过
             if e.errno in (errno.ECONNREFUSED, 10061, 10054, 111):
@@ -50,13 +51,19 @@ class VisualizerBase(ABC):
         self.stop_event = threading.Event()
         self.recv_thread = threading.Thread(target=self.recv_data, daemon=True)
 
-    def start(self):
-        self.recv_thread.start()
+    def start(self, source="udp"):
+        if source == "udp":
+            self.recv_thread.start()
+        else:
+            self.offline_mode = True
+            self.visualize_from_csv(source)
+            print("离线模式，等待加载数据")
         try:
             self.visualize()
         except KeyboardInterrupt:
-            self.stop_event.set()
-            self.recv_thread.join(1.0)
+            if self.recv_thread.is_alive():
+                self.stop_event.set()
+                self.recv_thread.join(1.0)
             self.sock.close()
             print("可视化服务已关闭，程序退出。")
 
@@ -67,6 +74,10 @@ class VisualizerBase(ABC):
 
     @abstractmethod
     def visualize(self):
+        pass
+
+    @abstractmethod
+    def visualize_from_csv(self, csv_file, frequency):
         pass
 
 
@@ -85,6 +96,7 @@ class UEVisualizer(VisualizerBase):
 
     def visualize(self):
         print_flag = True
+        has_visualized = 0
         while not self.stop_event.is_set():
             with self.lock:
                 # 队空判断
@@ -94,13 +106,9 @@ class UEVisualizer(VisualizerBase):
                         print_flag = False
                     if self.offline_mode and not self.wait_data:
                         print("离线模式运行完毕，退出可视化线程")
-                        self._stop_event.set()
+                        self.stop_event.set()
                     continue
                 total = len(self.trajectory)
-                # 为了平滑可视化，先等待数据加载
-                if self.offline_mode and self.wait_data:
-                    print(f"轨迹数据量较少({total})，等待加载全部数据...")
-                    continue
                 # 弹出一帧数据
                 point = self.trajectory.popleft()
                 remains = total - 1
@@ -118,31 +126,34 @@ class UEVisualizer(VisualizerBase):
                 airsim.Quaternionr(qx, qy, qz, qw)
             )
             self.client.simSetVehiclePose(pose, ignore_collision=True, vehicle_name=self.vehicle_name)
-            print(f"(UE)余:{remains}, N={n:.2f}, E={e:.2f}, D={d:.2f}, Q=({qw:.3f},{qx:.3f},{qy:.3f},{qz:.3f})")
+            has_visualized += 1
+            if self.offline_mode:
+                print(f"(UE)余:{remains}, N={n:.2f}, E={e:.2f}, D={d:.2f}, Q=({qw:.3f},{qx:.3f},{qy:.3f},{qz:.3f})")
+            else:
+                print(f"(UE)成功:{has_visualized}, N={n:.2f}, E={e:.2f}, D={d:.2f}, Q=({qw:.3f},{qx:.3f},{qy:.3f},{qz:.3f})")
             self.client.simPause(False)
             time.sleep(self.time_step)
             print_flag = True
 
     def recv_data(self):
         print(f"可视化服务器启动：({self.host}, {self.port})")
-
-        buffer = b''
+        recv_num = 0
         while not self.stop_event.is_set():
             try:
+                # 默认客户端每次发送一行数据
                 data, addr = self.sock.recvfrom(1024)
-                buffer += data
-                while b'\n' in buffer:
-                    line, buffer = buffer.split(b'\n', 1)
-                    msg = json.loads(line.decode('utf-8'))
-                    parsed = {
-                        'longitude': msg.get('longitude', 0.0),
-                        'latitude': msg.get('latitude', 0.0),
-                        'altitude': msg.get('altitude', 0.0),
-                        'roll': msg.get('roll', 0.0),
-                        'pitch': msg.get('pitch', 0.0),
-                        'yaw': msg.get('yaw', 0.0)
-                    }
-                    self.process_data(**parsed)
+                msg = json.loads(data.decode('utf-8'))
+                parsed = {
+                    'longitude': msg.get('longitude', 0.0),
+                    'latitude': msg.get('latitude', 0.0),
+                    'altitude': msg.get('altitude', 0.0),
+                    'roll': msg.get('roll', 0.0),
+                    'pitch': msg.get('pitch', 0.0),
+                    'yaw': msg.get('yaw', 0.0)
+                }
+                self.process_data(**parsed)
+                recv_num += 1
+                print(f"(UE)已接收数据: {recv_num}, 来自: {addr}")
             except Exception as e:
                 if e.errno in (errno.EBADF, 10038):
                     break
@@ -259,7 +270,9 @@ class UEVisualizer(VisualizerBase):
 
         last_time = None
         time_interval = 1.0 / frequency
+        count = 0
         for _, row in df.iterrows():
+            count += 1
             time_val = row['time']
             latitude = row['lat_deg']
             longitude = row['lon_deg']
@@ -269,7 +282,8 @@ class UEVisualizer(VisualizerBase):
             yaw = row['yaw']
             if last_time is None or (time_val - last_time) >= time_interval:
                 last_time = time_val
-                self.add_data(longitude, latitude, altitude, roll, pitch, yaw)
+                self.process_data(longitude, latitude, altitude, roll, pitch, yaw)
+                print(f"(UE)已加载数据{count}/{len(df)}: time={time_val:.2f}, lat={latitude:.4f}, lon={longitude:.4f}, alt={altitude:.1f}")
         # 后续没有数据添加，队列为空可退出线程
         self.wait_data = False
 
@@ -344,4 +358,4 @@ class PlotVisualizer:
 
 if __name__ == "__main__":
     ue_vis = UEVisualizer()
-    ue_vis.start()
+    ue_vis.start(source="c310_demo.csv")

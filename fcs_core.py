@@ -137,7 +137,7 @@ class AircraftSimulation:
 
 
 if __name__ == "__main__":
-    from flight_visualizer import PlotVisualizer, SimDataSender
+    from flight_visualizer import PlotVisualizer, SimDataSender, UEVisualizer
     bro = SimDataSender()
     sim = AircraftSimulation(max_time=100.0, broadcaster=bro)
 
@@ -170,5 +170,3 @@ if __name__ == "__main__":
     y_columns=['lat_deg','lon_deg'],
     titles=['Latitude','Longitude'],
 )
-    # 若未选择同步UE可视化，可以在此处调用离线可视化
-    # ue_vis.visualize_from_csv("c310_demo.csv")
