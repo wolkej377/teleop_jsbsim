@@ -1,248 +1,286 @@
-# import airsim
-# from pyproj import Transformer
-import pandas as pd
+import errno
+import threading
+from abc import ABC, abstractmethod
+import airsim
+from pyproj import Transformer
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from collections import deque
 import time
+import math
+from collections import deque
+import socket
+import json
 
-class ChartVisualizer:
-    def pause(self):
-        plt.show(block=True)
+class SimDataSender:
+    def __init__(self, host='127.0.0.1', port=5555):
+        self.addr = (host, port)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    def __init__(self, max_points=200, refresh_rate=10, time_window=5.0):
-        """
-        max_points: 每条曲线最多显示的点数
-        refresh_rate: 刷新频率 Hz
-        """
-        self.max_points = max_points
-        self.refresh_interval = 1.0 / refresh_rate
-        self.time_window = time_window  # 新增：显示的时间窗口（秒）
+    def stop(self):
+        self.sock.close()
+        print("已关闭UDP发送端")
 
-        # 使用 deque 存储时间序列和各状态变量
-        self.time_data = deque(maxlen=max_points)
-        self.altitude_data = deque(maxlen=max_points)
-        self.speed_data = deque(maxlen=max_points)
-        self.pitch_data = deque(maxlen=max_points)
-        self.roll_data = deque(maxlen=max_points)
-        self.yaw_data = deque(maxlen=max_points)
-
-        # 初始化 matplotlib 图表
-        self.fig, self.axs = plt.subplots(3, 1, figsize=(8, 6))
-        self.fig.tight_layout(pad=3)
-
-        # 线条对象
-        self.line_altitude, = self.axs[0].plot([], [], 'r-', label='Altitude (ft)')
-        self.line_speed, = self.axs[1].plot([], [], 'g-', label='Speed (kts)')
-        self.line_attitude_pitch, = self.axs[2].plot([], [], 'b-', label='Pitch (deg)')
-        self.line_attitude_roll, = self.axs[2].plot([], [], 'm-', label='Roll (deg)')
-        self.line_attitude_yaw, = self.axs[2].plot([], [], 'c-', label='Yaw (deg)')
-
-        for ax in self.axs:
-            ax.grid(True)
-        # 图例固定在右上角
-        self.axs[0].legend(loc='upper right', bbox_to_anchor=(1, 1), frameon=True)
-        self.axs[1].legend(loc='upper right', bbox_to_anchor=(1, 1), frameon=True)
-        self.axs[2].legend(loc='upper right', bbox_to_anchor=(1, 1), frameon=True)
-
-        self.anim = animation.FuncAnimation(self.fig, self._update_plot, interval=self.refresh_interval*1000, blit=False)
-
-    def add_data(self, t, altitude=None, speed=None, pitch=None, roll=None, yaw=None):
-        """添加一帧数据，并实时刷新图像"""
-        self.time_data.append(t)
-        if altitude is not None:
-            self.altitude_data.append(altitude)
-        if speed is not None:
-            self.speed_data.append(speed)
-        if pitch is not None:
-            self.pitch_data.append(pitch)
-        if roll is not None:
-            self.roll_data.append(roll)
-        if yaw is not None:
-            self.yaw_data.append(yaw)
-        # 实时刷新
-        plt.pause(self.refresh_interval)
-
-    def _update_plot(self, frame):
-        """更新曲线，x轴区间为time_window"""
-        # 只显示最近time_window秒的数据
-        if len(self.time_data) > 1:
-            t_max = self.time_data[-1]
-            t_min = max(self.time_data[0], t_max - self.time_window)
-        else:
-            t_min, t_max = 0, self.time_window
-
-        # Altitude
-        self.line_altitude.set_data(self.time_data, self.altitude_data)
-        self.axs[0].set_xlim(t_min, t_max)
-        self.axs[0].relim()
-        self.axs[0].autoscale_view()
-
-        # Speed
-        self.line_speed.set_data(self.time_data, self.speed_data)
-        self.axs[1].set_xlim(t_min, t_max)
-        self.axs[1].relim()
-        self.axs[1].autoscale_view()
-
-        # Attitude
-        self.line_attitude_pitch.set_data(self.time_data, self.pitch_data)
-        self.line_attitude_roll.set_data(self.time_data, self.roll_data)
-        self.line_attitude_yaw.set_data(self.time_data, self.yaw_data)
-        self.axs[2].set_xlim(t_min, t_max)
-        self.axs[2].relim()
-        self.axs[2].autoscale_view()
-
-        return (self.line_altitude, self.line_speed,
-                self.line_attitude_pitch, self.line_attitude_roll, self.line_attitude_yaw)
+    def send_udp(self, msg):
+        data = (json.dumps(msg) + "\n").encode('utf-8')
+        try:
+            self.sock.sendto(data, self.addr)
+        except OSError as e:
+            # 服务端未启动时静默跳过
+            if e.errno in (errno.ECONNREFUSED, 10061, 10054, 111):
+                pass
+            else:
+                print(f"发送异常: {e}")
 
 
-class UEVisualizer:
-    def __init__(self, vehicle_name="drone_1", height_offset=0):
+class VisualizerBase(ABC):
+    def __init__(self, host='0.0.0.0', port=5555, buffer_size=20):
+        # 数据存储（队列）
+        self.trajectory = deque(maxlen=buffer_size)
+        self.lock = threading.Lock()
+        self.wait_data = True
+        self.offline_mode = False
+
+        self.host = host
+        self.port = port
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind((self.host, self.port))
+
+        self.stop_event = threading.Event()
+        self.recv_thread = threading.Thread(target=self.recv_data, daemon=True)
+
+    def start(self):
+        self.recv_thread.start()
+        try:
+            self.visualize()
+        except KeyboardInterrupt:
+            self.stop_event.set()
+            self.recv_thread.join(1.0)
+            self.sock.close()
+            print("可视化服务已关闭，程序退出。")
+
+    @abstractmethod
+    def recv_data(self):
+        pass
+
+
+    @abstractmethod
+    def visualize(self):
+        pass
+
+
+class UEVisualizer(VisualizerBase):
+    def __init__(self, vehicle_name="drone_1", height_offset=-150, time_step=0.0001):
+        super().__init__()
         self.vehicle_name = vehicle_name
         self.height_offset = height_offset
+        self.time_step = time_step
+
         self.client = airsim.VehicleClient()
         self.client.confirmConnection()
         print(f"已连接AirSim: {vehicle_name}")
 
-        # 数据存储
-        self.ned_n = []
-        self.ned_e = []
-        self.ned_d = []
-        self.qw = []
-        self.qx = []
-        self.qy = []
-        self.qz = []
+        self.ref_point = {}
 
-        self.ref_x = None
-        self.ref_y = None
-        self.ref_z = None
-        self.ref_lat = None
-        self.ref_lon = None
+    def visualize(self):
+        print_flag = True
+        while not self.stop_event.is_set():
+            with self.lock:
+                # 队空判断
+                if not self.trajectory:
+                    if self.wait_data and print_flag:
+                        print("轨迹数据为空，等待数据...CTRL+C退出")
+                        print_flag = False
+                    if self.offline_mode and not self.wait_data:
+                        print("离线模式运行完毕，退出可视化线程")
+                        self._stop_event.set()
+                    continue
+                total = len(self.trajectory)
+                # 为了平滑可视化，先等待数据加载
+                if self.offline_mode and self.wait_data:
+                    print(f"轨迹数据量较少({total})，等待加载全部数据...")
+                    continue
+                # 弹出一帧数据
+                point = self.trajectory.popleft()
+                remains = total - 1
+            n = point['ned_n']
+            e = point['ned_e']
+            d = point['ned_d']
+            qw = point['qw']
+            qx = point['qx']
+            qy = point['qy']
+            qz = point['qz']
 
-        self.current_index = 0
+            self.client.simPause(True)
+            pose = airsim.Pose(
+                airsim.Vector3r(n, e, d + self.height_offset),
+                airsim.Quaternionr(qx, qy, qz, qw)
+            )
+            self.client.simSetVehiclePose(pose, ignore_collision=True, vehicle_name=self.vehicle_name)
+            print(f"(UE)余:{remains}, N={n:.2f}, E={e:.2f}, D={d:.2f}, Q=({qw:.3f},{qx:.3f},{qy:.3f},{qz:.3f})")
+            self.client.simPause(False)
+            time.sleep(self.time_step)
+            print_flag = True
 
-    # ----------- 坐标转换函数 -------------
+    def recv_data(self):
+        print(f"可视化服务器启动：({self.host}, {self.port})")
+
+        buffer = b''
+        while not self.stop_event.is_set():
+            try:
+                data, addr = self.sock.recvfrom(1024)
+                buffer += data
+                while b'\n' in buffer:
+                    line, buffer = buffer.split(b'\n', 1)
+                    msg = json.loads(line.decode('utf-8'))
+                    parsed = {
+                        'longitude': msg.get('longitude', 0.0),
+                        'latitude': msg.get('latitude', 0.0),
+                        'altitude': msg.get('altitude', 0.0),
+                        'roll': msg.get('roll', 0.0),
+                        'pitch': msg.get('pitch', 0.0),
+                        'yaw': msg.get('yaw', 0.0)
+                    }
+                    self.process_data(**parsed)
+            except Exception as e:
+                if e.errno in (errno.EBADF, 10038):
+                    break
+                print(f"recv_data 异常: {e}")
+                break
+
     @staticmethod
-    def ecef_to_ned(x, y, z, ref_x, ref_y, ref_z, ref_lat, ref_lon):
-        dx = x - ref_x
-        dy = y - ref_y
-        dz = z - ref_z
-        phi = np.radians(ref_lat)
-        lam = np.radians(ref_lon)
-        sin_phi = np.sin(phi)
-        cos_phi = np.cos(phi)
-        sin_lam = np.sin(lam)
-        cos_lam = np.cos(lam)
+    def euler_to_quaternion(pitch, roll, yaw):
+        # 将角度从度转换为弧度
+        yaw_rad = math.radians(yaw)
+        pitch_rad = math.radians(pitch)
+        roll_rad = math.radians(roll)
+
+        # 计算每个角度一半的余弦和正弦值
+        cy = math.cos(yaw_rad * 0.5)
+        sy = math.sin(yaw_rad * 0.5)
+        cp = math.cos(pitch_rad * 0.5)
+        sp = math.sin(pitch_rad * 0.5)
+        cr = math.cos(roll_rad * 0.5)
+        sr = math.sin(roll_rad * 0.5)
+
+        # 根据 ZYX 旋转顺序计算四元数分量
+        w = cr * cp * cy + sr * sp * sy
+        x = sr * cp * cy - cr * sp * sy
+        y = cr * sp * cy + sr * cp * sy
+        z = cr * cp * sy - sr * sp * cy
+
+        return w, x, y, z
+
+
+    def ecef_to_ned(self, X, Y, Z):
+        # 支持单点或批量轨迹输入
+        X = np.atleast_1d(X).flatten()
+        Y = np.atleast_1d(Y).flatten()
+        Z = np.atleast_1d(Z).flatten()
+
+        dx = X - self.ref_point['x']
+        dy = Y - self.ref_point['y']
+        dz = Z - self.ref_point['z']
+
+        phi = np.radians(self.ref_point['lat'])
+        lam = np.radians(self.ref_point['lon'])
+
+        sin_phi, cos_phi = np.sin(phi), np.cos(phi)
+        sin_lam, cos_lam = np.sin(lam), np.cos(lam)
+
+        # ECEF -> NED旋转矩阵
         R = np.array([
             [-sin_phi * cos_lam, -sin_phi * sin_lam,  cos_phi],
             [        -sin_lam,           cos_lam,       0    ],
             [-cos_phi * cos_lam, -cos_phi * sin_lam, -sin_phi]
         ])
-        ned = R @ np.vstack((dx, dy, dz))
-        return ned[0], ned[1], ned[2]
+        # shape (3, N)
+        ecef = np.stack((dx, dy, dz), axis=0)
+        ned = R @ ecef
+        if X.size == 1:
+            return ned[0].item(), ned[1].item(), ned[2].item()
+        else:
+            # 若输入为数组，返回3个1D numpy数组
+            return ned[0], ned[1], ned[2]
 
-    # ----------- CSV加载 -------------
-    def load_csv(self, csv_file):
+    def set_preference_point(self, longitude, latitude, altitude):
+        transformer = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
+        x, y, z = transformer.transform(longitude, latitude, altitude * 0.3048)
+        self.ref_point['x'] = x
+        self.ref_point['y'] = y
+        self.ref_point['z'] = z
+        self.ref_point['lat'] = latitude
+        self.ref_point['lon'] = longitude
+        self.ref_point['alt'] = altitude * 0.3048
+        print(f"参考点设置: 经度={longitude}, 纬度={latitude}, 高度={altitude}, ECEF=({x:.2f},{y:.2f},{z:.2f})")
+
+    def process_data(self, longitude, latitude, altitude, roll, pitch, yaw, *args, **kwargs):
+        # longitude, latitude, roll, pitch, yaw 单位度
+        # altitude 单位英尺
+        transformer = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
+        x, y, z = transformer.transform(longitude, latitude, altitude * 0.3048)
+        if not self.ref_point:
+            self.set_preference_point(longitude, latitude, altitude)
+            return
+        qw, qx, qy, qz = self.euler_to_quaternion(pitch, roll, yaw)
+        ned_n, ned_e, ned_d = self.ecef_to_ned(x, y, z) #返回的是单个点
+        point = {
+            "ned_n": ned_n,
+            "ned_e": ned_e,
+            "ned_d": ned_d,
+            "qw": qw,
+            "qx": qx,
+            "qy": qy,
+            "qz": qz
+        }
+        with self.lock:
+            self.trajectory.append(point)
+        
+    def visualize_from_csv(self, csv_file, frequency=100):
+        self.offline_mode = True
+        # 清空现有轨迹
+        self.trajectory = deque()
+        # 设置参考点为最后一个点
         df = pd.read_csv(csv_file)
-        print(f"加载CSV轨迹文件: {csv_file}, 共 {len(df)} 帧")
+        last_row = df.iloc[-1]
+        self.set_preference_point(
+            last_row['lon_deg'],
+            last_row['lat_deg'],
+            last_row['altitude_ft']
+        )
 
-        # 英尺转米
-        ft2m = 0.3048
+        required = ['time', 'altitude_ft', 'lat_deg', 'lon_deg', 'vc_kts', 'roll', 'pitch', 'yaw']
+        for key in required:
+            if key not in df.columns:
+                raise ValueError(f"CSV 缺少必要列: {key}")
+        df['time'] = pd.to_numeric(df['time'], errors='coerce')
+        df = df.dropna(subset=['time'])
 
-        # 姿态
-        self.qw = df['Q(1)_{LOCAL}'].values
-        self.qx = df['Q(2)_{LOCAL}'].values
-        self.qy = df['Q(3)_{LOCAL}'].values
-        self.qz = df['Q(4)_{LOCAL}'].values
+        last_time = None
+        time_interval = 1.0 / frequency
+        for _, row in df.iterrows():
+            time_val = row['time']
+            latitude = row['lat_deg']
+            longitude = row['lon_deg']
+            altitude = row['altitude_ft']
+            roll = row['roll']
+            pitch = row['pitch']
+            yaw = row['yaw']
+            if last_time is None or (time_val - last_time) >= time_interval:
+                last_time = time_val
+                self.add_data(longitude, latitude, altitude, roll, pitch, yaw)
+        # 后续没有数据添加，队列为空可退出线程
+        self.wait_data = False
 
-        # ECEF坐标
-        X = df['X_{ECEF} (ft)'].values * ft2m
-        Y = df['Y_{ECEF} (ft)'].values * ft2m
-        Z = df['Z_{ECEF} (ft)'].values * ft2m
-
-        # 参考点
-        self.ref_lat = df['Latitude Geodetic (deg)'].iloc[0]
-        self.ref_lon = df['Longitude (deg)'].iloc[0]
-        self.ref_x = X[0]
-        self.ref_y = Y[0]
-        self.ref_z = Z[0]
-
-        # NED转换
-        ned_n, ned_e, ned_d = self.ecef_to_ned(X, Y, Z, 
-                                               self.ref_x, self.ref_y, self.ref_z, 
-                                               self.ref_lat, self.ref_lon)
-
-        # 偏移量，使最后一点接近UE原点
-        offset_n = -ned_n[-1] + 140
-        offset_e = -ned_e[-1]
-        offset_d = -ned_d[-1]
-
-        self.ned_n = ned_n + offset_n
-        self.ned_e = ned_e + offset_e
-        self.ned_d = ned_d + offset_d
-
-        self.current_index = 0
-        print(f"轨迹加载完成，偏移量: N={offset_n:.2f}, E={offset_e:.2f}, D={offset_d:.2f}")
-
-    # ----------- 实时添加数据 -------------
-    def add_data(self, n, e, d, qw, qx, qy, qz):
-        self.ned_n.append(n)
-        self.ned_e.append(e)
-        self.ned_d.append(d)
-        self.qw.append(qw)
-        self.qx.append(qx)
-        self.qy.append(qy)
-        self.qz.append(qz)
-
-    # ----------- 播放轨迹 -------------
-    def play(self, dt=0.01):
-        total_frames = len(self.ned_n)
-        print(f"开始播放轨迹，共 {total_frames} 帧")
-        start_time = time.time()
-        try:
-            while self.current_index < total_frames:
-                n = self.ned_n[self.current_index]
-                e = self.ned_e[self.current_index]
-                d = self.ned_d[self.current_index]
-                pose = airsim.Pose(
-                    airsim.Vector3r(n, e, d + self.height_offset),
-                    airsim.Quaternionr(
-                        self.qx[self.current_index],
-                        self.qy[self.current_index],
-                        self.qz[self.current_index],
-                        self.qw[self.current_index]
-                    )
-                )
-                self.client.simSetVehiclePose(pose, ignore_collision=True, vehicle_name=self.vehicle_name)
-                self.current_index += 1
-                time.sleep(dt)
-            elapsed = time.time() - start_time
-            print(f"轨迹播放完成! 总时长: {elapsed:.2f}秒")
-        except KeyboardInterrupt:
-            print("用户中断了轨迹播放")
-        finally:
-            self.client.simPause(False)
-            print("仿真已恢复。")
-
-
-class CSVVisualizer:
+class PlotVisualizer:
     def __init__(self, csv_file):
-        """
-        初始化类，加载 CSV 数据
-        csv_file: 飞行数据 CSV 文件路径
-        """
         self.csv_file = csv_file
         self.df = None
         self._load_csv()
     
     def _load_csv(self):
-        """内部方法：读取 CSV 并检查列"""
         self.df = pd.read_csv(self.csv_file)
-        expected_columns = ['time','altitude_ft','lat_deg','lon_deg','vc_kts','roll','pitch','yaw']
-        for col in expected_columns:
-            if col not in self.df.columns:
-                raise ValueError(f"CSV 缺少必要列: {col}")
         self.df['time'] = pd.to_numeric(self.df['time'], errors='coerce')
         self.df = self.df.dropna(subset=['time'])
     
@@ -256,7 +294,10 @@ class CSVVisualizer:
         
         for i, col in enumerate(y_columns):
             ax = axs[i]
-            ax.plot(self.df[x], self.process_column(col))
+            ax.plot(self.df[x], self.__process_column(col))
+            # 修改标签
+            if col == 'vc_kts':
+                col = 'vc_fps'
             ax.set_ylabel(col)
             if titles and i < len(titles):
                 ax.set_title(titles[i])
@@ -275,7 +316,7 @@ class CSVVisualizer:
         
         fig, ax = plt.subplots()
         for col, label in zip(y_columns, labels):
-            ax.plot(self.df[x], self.process_column(col), label=label)
+            ax.plot(self.df[x], self.__process_column(col), label=label)
         
         ax.set_xlabel(x)
         ax.set_ylabel(', '.join(y_columns))
@@ -286,34 +327,21 @@ class CSVVisualizer:
         plt.show()
         return ax
 
-    def process_column(self, col):
+    def __process_column(self, col):
         if col not in self.df.columns:
             raise ValueError(f"列 {col} 不存在")
         
-        # 对不同列的处理
+        # 对不同列的数据处理
         if col == 'yaw':
             self.df[col] = self.df[col].apply(lambda x: x-360 if x>180 else x)
+            
+        if col == 'vc_kts':
+            self.df[col] = self.df[col].apply(lambda x: x * 1.68781)
         
         return self.df[col]
-
-
+    
+    
 
 if __name__ == "__main__":
-    import random
-
-    vis = ChartVisualizer(max_points=100, refresh_rate=10, time_window=1.0)
-
-    t = 0.0
-    while t < 20:  # 模拟 20 秒飞行
-        # 添加随机数据模拟飞行状态
-        vis.add_data(
-            t,
-            altitude=random.uniform(1000, 5000),
-            speed=random.uniform(100, 300),
-            pitch=random.uniform(-10, 10),
-            roll=random.uniform(-30, 30),
-            yaw=random.uniform(0, 360)
-        )
-        t += 0.1
-        time.sleep(0.1)  # 模拟数据更新周期
-    vis.pause()
+    ue_vis = UEVisualizer()
+    ue_vis.start()
