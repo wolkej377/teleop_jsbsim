@@ -2,13 +2,13 @@ import threading
 import time
 from pynput import keyboard
 from fcs_core import AircraftSimulation
-from flight_visualizer import UEVisualizer, PlotVisualizer
+from flight_visualizer import PlotVisualizer, SimDataSender
 # 键盘控制说明：
 # r 控制自动驾驶速度保持开关
-# q e 控制自动驾驶保持速度
+# q e 控制自动驾驶保持速度 增减
 # v 控制自动驾驶高度保持开关
-# z c 控制自动驾驶保持高度
-# w s 控制油门throttle
+# z c 控制自动驾驶保持高度 增减
+# w s 控制油门throttle 增减
 # a d 控制方向舵rudder
 # ↑ ↓ 控制升降舵elevator
 # ← → 控制副翼aileron
@@ -42,8 +42,11 @@ class FlightVariable:
     def decrease(self):
         self.value -= self.step
 
-vis = UEVisualizer()
-sim = AircraftSimulation(max_time=100.0, log_csv="c310_teleop.csv", visualizer=vis)
+bro = SimDataSender()
+csv_file = "c310_teleop.csv"
+sim = AircraftSimulation(max_time=300.0, log_csv=csv_file, broadcaster=bro)
+# 仿真状态实时打印开关
+sim.print_enable = False
 
 throttle0 = FlightVariable(simulation=sim, name="fcs/throttle-cmd-norm[0]", min=0.0, max=1.0, step=0.01, initial=0.954)
 throttle1 = FlightVariable(simulation=sim, name="fcs/throttle-cmd-norm[1]", min=0.0, max=1.0, step=0.01, initial=0.954)
@@ -92,18 +95,18 @@ def set_controls_to_jsbsim():
                 throttle0.decrease()
                 throttle1.decrease()
                 print(f"油门动作：减 当前值:{throttle0.value:.2f}")
-            elif key == 'q':
+            elif key == 'z':
                 altitude_setpoint.increase()
                 print(f"高度保持：升高 当前值:{altitude_setpoint.value:.2f}ft")
-            elif key == 'e':
+            elif key == 'c':
                 altitude_setpoint.decrease()
                 print(f"高度保持：降低 当前值:{altitude_setpoint.value:.2f}ft")
-            elif key == 'z':
-                airspeed_setpoint.decrease()
-                print(f"速度保持：降低 当前值:{airspeed_setpoint.value:.2f}kt")
-            elif key == 'c':
+            elif key == 'q':
                 airspeed_setpoint.increase()
                 print(f"速度保持：升高 当前值:{airspeed_setpoint.value:.2f}kt")
+            elif key == 'e':
+                airspeed_setpoint.decrease()
+                print(f"速度保持：降低 当前值:{airspeed_setpoint.value:.2f}kt")
             elif key == 'a':
                 rudder.decrease()
                 print(f"方向舵动作：左 当前值:{rudder.value:.2f}")
@@ -151,7 +154,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-    csv_vis = PlotVisualizer("c310_teleop.csv")
+    csv_vis = PlotVisualizer(csv_file)
     csv_vis.plot(
     y_columns=['altitude_ft','vc_kts'],
     titles=['Altitude','Velocity'],

@@ -358,4 +358,6 @@ class PlotVisualizer:
 
 if __name__ == "__main__":
     ue_vis = UEVisualizer()
-    ue_vis.start(source="c310_demo.csv")
+    # 选择数据源：udp 或 csv 文件路径
+    ue_vis.start(source="c310_teleop.csv")
+    # ue_vis.start(source="udp")

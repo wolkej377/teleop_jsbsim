@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<initialize name="reset00" version="2">
+
+<!-- 定义飞行器的初始地理位置和相对地面的高度 -->
+  <position frame="ECEF">
+    <altitudeAGL unit="FT"> 550 </altitudeAGL>
+    <latitude type="geodetic" unit="RAD"> 0.516291656 </latitude>
+    <longitude unit="RAD"> -1.6599238 </longitude>
+  </position>
+
+<!-- 定义飞机机头朝向，确定初始飞行方向，飞向北方。 -->
+  <orientation unit="DEG" frame="LOCAL">
+    <yaw>   0.0  </yaw>
+  </orientation>
+
+<!-- 定义飞机初始速度，飞机以67m/s的速度沿机头方向飞行，无侧滑和爬升/下降。 -->
+  <velocity unit="FT/SEC" frame="LOCAL">
+    <x> 220.0 </x>
+    <y> 0.0 </y>
+    <z> 0.0 </z>
+  </velocity>
+
+<!-- 初始无角速度，飞机没有旋转或姿态变化。 -->
+  <attitude_rate unit="DEG/SEC" frame="LOCAL">
+    <x> 0.0 </x>
+    <y> 0.0 </y>
+    <z> 0.0 </z>
+  </attitude_rate>
+<!-- 定义了地面高度相对于海平面的标高 -->
+  <elevation unit="FT">   0.0  </elevation>
+
+</initialize>

@@ -14,6 +14,7 @@ class AircraftSimulation:
         self.log_csv = log_csv
         self.broadcaster = broadcaster
         self.main_script = None
+        self.print_enable = True
 
         self.log_data = []
         # 命令队列，外部通过 add_command 添加
@@ -103,7 +104,8 @@ class AircraftSimulation:
         msg += f", Pitch:{self.fdm['attitude/theta-deg']:.1f}"
         msg += f", Roll:{self.fdm['attitude/phi-deg']:.1f}"
         msg += f", Yaw:{self.fdm['attitude/psi-deg']:.1f}"
-        print(msg)
+        if self.print_enable:
+            print(msg)
 
     # 仿真循环
     def run_simulation(self, initial_work="work1"):

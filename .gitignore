@@ -1,0 +1,6 @@
+# 忽略所有 csv
+*.csv
+
+# 保留 c310_land0.csv
+!c310_land0.csv
+!v0_c3104_waypoint.csv
