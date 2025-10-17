@@ -108,9 +108,9 @@ class AircraftSimulation:
             print(msg)
 
     # 仿真循环
-    def run_simulation(self, initial_work="work1"):
+    def run_simulation(self, initial_work="initial_work1"):
         # 初始化
-        if initial_work == "work1":
+        if initial_work == "initial_work1":
             self.initial_work1()
         while self.sim_time < self.max_time:
             self.fdm.run()
