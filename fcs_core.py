@@ -3,18 +3,20 @@ import pandas as pd
 import queue
 
 class AircraftSimulation:
-    def __init__(self, max_time=1000.0, init_xml="./lyj_init.xml", log_csv="c310_demo.csv", broadcaster=None):
+    def __init__(self, max_time=1000.0, sim_frequency=100, init_xml="./lyj_init.xml", log_csv="c310_demo.csv", broadcaster=None):
         self.fdm = jsbsim.FGFDMExec(root_dir=None)
+        self.fdm.set_dt(1.0 / sim_frequency)
         self.fdm.load_model("c310")
         self.fdm.load_ic(init_xml, True)
         self.fdm.run_ic()
+
 
         self.sim_time = 0.0
         self.max_time = max_time
         self.log_csv = log_csv
         self.broadcaster = broadcaster
         self.main_script = None
-        self.print_enable = True
+        self.print_enable = False
 
         self.log_data = []
         # 命令队列，外部通过 add_command 添加
@@ -139,21 +141,24 @@ class AircraftSimulation:
 
 
 if __name__ == "__main__":
-    from flight_visualizer import PlotVisualizer, SimDataSender, UEVisualizer
-    bro = SimDataSender()
-    sim = AircraftSimulation(max_time=100.0, broadcaster=bro)
+    from flight_visualizer import PlotVisualizer, SimDataSender
+    # 设置仿真频率
+    FREQUENCY = 100
+    # 对可视化数据进行降采样
+    bro = SimDataSender(sim_frequency=FREQUENCY, N=20)
+    sim = AircraftSimulation(max_time=100.0, sim_frequency=FREQUENCY, broadcaster=bro)
 
     def main_script(this):
         # 在这里预设脚本控制逻辑
         # 例如：30秒后改变速度
         # 例如：60秒后改变高度
         if this.sim_time > 30.0:
+            # 单位fps
             this.fdm['ap/airspeed_setpoint'] = 150.0
             this.fdm['ap/airspeed_hold'] = 1
         if this.sim_time > 60.0:
             this.fdm['ap/altitude_setpoint'] = 200.0
             this.fdm['ap/altitude_hold'] = 1
-
     sim.main_script = main_script
     sim.run_simulation()
 

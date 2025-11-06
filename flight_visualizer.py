@@ -1,4 +1,5 @@
 import errno
+import queue
 import threading
 from abc import ABC, abstractmethod
 import airsim
@@ -14,25 +15,57 @@ import socket
 import json
 
 class SimDataSender:
-    def __init__(self, host='127.0.0.1', port=5555):
+    def __init__(self, sim_frequency=200, N =4 , host='127.0.0.1', port=5555):
         self.addr = (host, port)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.data_queue = queue.Queue()
+        self.sim_frequency = sim_frequency
+        self.N = N
+        self.counter = 0
+        self.finished = False
+        self.thread = threading.Thread(target=self._worker)
+        self.thread.daemon = True
+        self.thread.start()
 
     def stop(self):
+        self.finished = True
+        while True:
+            try:
+                if self.thread.is_alive():
+                    self.thread.join(0.1)
+                else:
+                    break
+            except KeyboardInterrupt:
+                print("Main thread interrupted, exiting...")
+                break
         self.sock.close()
         print("已关闭UDP发送端")
 
     def send_udp(self, msg):
+        self.counter += 1
+        if self.counter < self.N:
+            return
         data = (json.dumps(msg) + "\n").encode('utf-8')
-        try:
-            self.sock.sendto(data, self.addr)
-            time.sleep(0.0001)
-        except OSError as e:
-            # 服务端未启动时静默跳过
-            if e.errno in (errno.ECONNREFUSED, 10061, 10054, 111):
-                pass
-            else:
-                print(f"发送异常: {e}")
+        self.data_queue.put(data)
+        self.counter = 0
+
+    def _worker(self):
+        while True:
+            try:
+                data = self.data_queue.get(timeout=0.1)
+                try:
+                    self.sock.sendto(data, self.addr)
+                    time.sleep(0.0001)
+                except OSError as e:
+                    if e.errno in (errno.ECONNREFUSED, 10061, 10054, 111, 10038):
+                        pass
+                    else:
+                        print(f"发送异常: {e}")
+            except queue.Empty:
+                if self.finished:
+                    break
+                continue
+        print("UDP发送线程已退出")
 
 
 class VisualizerBase(ABC):
@@ -359,5 +392,5 @@ class PlotVisualizer:
 if __name__ == "__main__":
     ue_vis = UEVisualizer()
     # 选择数据源：udp 或 csv 文件路径
-    ue_vis.start(source="c310_teleop.csv")
-    # ue_vis.start(source="udp")
+    # ue_vis.start(source="c310_teleop.csv")
+    ue_vis.start(source="udp")
