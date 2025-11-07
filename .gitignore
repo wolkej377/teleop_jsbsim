@@ -1,6 +1,6 @@
 # 忽略所有 csv
 *.csv
-test.py
+*test.py
 __pycache__
 # 保留 v0_c3104_waypoint.csv、v0_landing.csv
 !v0_c3104_waypoint.csv

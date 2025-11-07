@@ -83,60 +83,65 @@ def keyboard_listener():
 
 def set_controls_to_jsbsim():
     global throttle0, throttle1, rudder, elevator, aileron
+    last_key_time = 0.0
+    key_repeat_delay = 0.2
     while True:
         with lock:
             key = current_key
-        if key:
-            if key == 'w':
-                throttle0.increase()
-                throttle1.increase()
-                print(f"油门动作：加 当前值:{throttle0.value:.2f}")
-            elif key == 's':
-                throttle0.decrease()
-                throttle1.decrease()
-                print(f"油门动作：减 当前值:{throttle0.value:.2f}")
-            elif key == 'z':
-                altitude_setpoint.increase()
-                print(f"高度保持：升高 当前值:{altitude_setpoint.value:.2f}ft")
-            elif key == 'c':
-                altitude_setpoint.decrease()
-                print(f"高度保持：降低 当前值:{altitude_setpoint.value:.2f}ft")
-            elif key == 'q':
-                airspeed_setpoint.increase()
-                print(f"速度保持：升高 当前值:{airspeed_setpoint.value:.2f}kt")
-            elif key == 'e':
-                airspeed_setpoint.decrease()
-                print(f"速度保持：降低 当前值:{airspeed_setpoint.value:.2f}kt")
-            elif key == 'a':
-                rudder.decrease()
-                print(f"方向舵动作：左 当前值:{rudder.value:.2f}")
-            elif key == 'd':
-                rudder.increase()
-                print(f"方向舵动作：右 当前值:{rudder.value:.2f}")
-            elif key == 'v':
-                if alltitude_hold.value == 0:
-                    alltitude_hold.value = 1
-                else:
-                    alltitude_hold.value = 0
-                print(f"高度保持开关：{('关闭' if alltitude_hold.value==0 else '开启')} 当前值:{alltitude_hold.value}")
-            elif key == 'r':
-                if airspeed_hold.value == 0:
-                    airspeed_hold.value = 1
-                else:
-                    airspeed_hold.value = 0
-                print(f"速度保持开关：{('关闭' if airspeed_hold.value==0 else '开启')} 当前值:{airspeed_hold.value}")
-            elif key == 'Key.up':
-                elevator.increase()
-                print(f"升降舵动作：上 当前值:{elevator.value:.2f}")
-            elif key == 'Key.down':
-                elevator.decrease()
-                print(f"升降舵动作：下 当前值:{elevator.value:.2f}")
-            elif key == 'Key.left':
-                aileron.decrease()
-                print(f"副翼动作：左滚转 当前值:{aileron.value:.2f}")
-            elif key == 'Key.right':
-                aileron.increase()
-                print(f"副翼动作：右滚转 当前值:{aileron.value:.2f}")
+        current_time = time.time()
+        if key and (current_time - last_key_time > key_repeat_delay):
+            last_key_time = current_time
+            if key:
+                if key == 'w':
+                    throttle0.increase()
+                    throttle1.increase()
+                    print(f"油门动作：加 当前值:{throttle0.value:.2f}")
+                elif key == 's':
+                    throttle0.decrease()
+                    throttle1.decrease()
+                    print(f"油门动作：减 当前值:{throttle0.value:.2f}")
+                elif key == 'z':
+                    altitude_setpoint.increase()
+                    print(f"高度保持：升高 当前值:{altitude_setpoint.value:.2f}ft")
+                elif key == 'c':
+                    altitude_setpoint.decrease()
+                    print(f"高度保持：降低 当前值:{altitude_setpoint.value:.2f}ft")
+                elif key == 'q':
+                    airspeed_setpoint.increase()
+                    print(f"速度保持：升高 当前值:{airspeed_setpoint.value:.2f}kt")
+                elif key == 'e':
+                    airspeed_setpoint.decrease()
+                    print(f"速度保持：降低 当前值:{airspeed_setpoint.value:.2f}kt")
+                elif key == 'a':
+                    rudder.decrease()
+                    print(f"方向舵动作：左 当前值:{rudder.value:.2f}")
+                elif key == 'd':
+                    rudder.increase()
+                    print(f"方向舵动作：右 当前值:{rudder.value:.2f}")
+                elif key == 'v':
+                    if alltitude_hold.value == 0:
+                        alltitude_hold.value = 1
+                    else:
+                        alltitude_hold.value = 0
+                    print(f"高度保持开关：{('关闭' if alltitude_hold.value==0 else '开启')} 当前值:{alltitude_hold.value}")
+                elif key == 'r':
+                    if airspeed_hold.value == 0:
+                        airspeed_hold.value = 1
+                    else:
+                        airspeed_hold.value = 0
+                    print(f"速度保持开关：{('关闭' if airspeed_hold.value==0 else '开启')} 当前值:{airspeed_hold.value}")
+                elif key == 'Key.up':
+                    elevator.increase()
+                    print(f"升降舵动作：上 当前值:{elevator.value:.2f}")
+                elif key == 'Key.down':
+                    elevator.decrease()
+                    print(f"升降舵动作：下 当前值:{elevator.value:.2f}")
+                elif key == 'Key.left':
+                    aileron.decrease()
+                    print(f"副翼动作：左滚转 当前值:{aileron.value:.2f}")
+                elif key == 'Key.right':
+                    aileron.increase()
+                    print(f"副翼动作：右滚转 当前值:{aileron.value:.2f}")
         # 控制频率20hz
         time.sleep(0.05)
 

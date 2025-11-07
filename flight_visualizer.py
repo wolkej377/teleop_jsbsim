@@ -118,10 +118,10 @@ class VisualizerBase(ABC):
 
 
 class UEVisualizer(VisualizerBase):
-    def __init__(self, vehicle_name="drone_1", height_offset=0, time_step=0.0001):
+    def __init__(self, vehicle_name="drone_1", offset=120.0, time_step=0.0001):
         super().__init__()
         self.vehicle_name = vehicle_name
-        self.height_offset = height_offset
+        self.offset = offset
         self.time_step = time_step
 
         self.client = airsim.VehicleClient()
@@ -158,7 +158,7 @@ class UEVisualizer(VisualizerBase):
 
             self.client.simPause(True)
             pose = airsim.Pose(
-                airsim.Vector3r(n, e, d + self.height_offset),
+                airsim.Vector3r(n + self.offset, e, d),
                 airsim.Quaternionr(qx, qy, qz, qw)
             )
             self.client.simSetVehiclePose(pose, ignore_collision=True, vehicle_name=self.vehicle_name)
@@ -170,6 +170,8 @@ class UEVisualizer(VisualizerBase):
             self.client.simPause(False)
             time.sleep(self.time_step)
             print_flag = True
+        # 可视化结束，暂停仿真
+        self.client.simPause(True)
 
     def recv_data(self):
         print(f"可视化服务器启动：({self.host}, {self.port})")
