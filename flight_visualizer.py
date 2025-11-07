@@ -84,12 +84,15 @@ class VisualizerBase(ABC):
         self.stop_event = threading.Event()
         self.recv_thread = threading.Thread(target=self.recv_data, daemon=True)
 
-    def start(self, source="udp"):
+    def start(self, source="udp", **kwargs):
         if source == "udp":
             self.recv_thread.start()
         else:
             self.offline_mode = True
-            self.visualize_from_csv(source)
+            if 'output_from' in kwargs:
+                self.visualize_from_csv(source, output_from=kwargs['output_from'])
+            else:
+                self.visualize_from_csv(source)
             print("离线模式，等待加载数据")
         try:
             self.visualize()
@@ -115,7 +118,7 @@ class VisualizerBase(ABC):
 
 
 class UEVisualizer(VisualizerBase):
-    def __init__(self, vehicle_name="drone_1", height_offset=-150, time_step=0.0001):
+    def __init__(self, vehicle_name="drone_1", height_offset=0, time_step=0.0001):
         super().__init__()
         self.vehicle_name = vehicle_name
         self.height_offset = height_offset
@@ -216,7 +219,6 @@ class UEVisualizer(VisualizerBase):
 
         return w, x, y, z
 
-
     def ecef_to_ned(self, X, Y, Z):
         # 支持单点或批量轨迹输入
         X = np.atleast_1d(X).flatten()
@@ -248,7 +250,7 @@ class UEVisualizer(VisualizerBase):
             # 若输入为数组，返回3个1D numpy数组
             return ned[0], ned[1], ned[2]
 
-    def set_preference_point(self, longitude, latitude, altitude):
+    def set_preference_point(self, latitude, longitude, altitude):
         transformer = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
         x, y, z = transformer.transform(longitude, latitude, altitude * 0.3048)
         self.ref_point['x'] = x
@@ -259,16 +261,24 @@ class UEVisualizer(VisualizerBase):
         self.ref_point['alt'] = altitude * 0.3048
         print(f"参考点设置: 经度={longitude}, 纬度={latitude}, 高度={altitude}, ECEF=({x:.2f},{y:.2f},{z:.2f})")
 
-    def process_data(self, longitude, latitude, altitude, roll, pitch, yaw, *args, **kwargs):
+    def process_data(self, output_from='py', **kwargs):
         # longitude, latitude, roll, pitch, yaw 单位度
         # altitude 单位英尺
-        transformer = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
-        x, y, z = transformer.transform(longitude, latitude, altitude * 0.3048)
+        longitude, latitude, altitude = kwargs.get('longitude'), kwargs.get('latitude'), kwargs.get('altitude')
         if not self.ref_point:
+            # 在线可视化将参考点设置为第一个点
             self.set_preference_point(longitude, latitude, altitude)
             return
-        qw, qx, qy, qz = self.euler_to_quaternion(pitch, roll, yaw)
-        ned_n, ned_e, ned_d = self.ecef_to_ned(x, y, z) #返回的是单个点
+        if output_from == 'xml':
+            qw, qx, qy, qz = kwargs.get('qw'), kwargs.get('qx'), kwargs.get('qy'), kwargs.get('qz')
+            x, y, z = kwargs.get('x'), kwargs.get('y'), kwargs.get('z')
+        else:
+            transformer = Transformer.from_crs("EPSG:4979", "EPSG:4978", always_xy=True)
+            x, y, z = transformer.transform(longitude, latitude, altitude * 0.3048)
+            
+            pitch, roll, yaw = kwargs.get('pitch'), kwargs.get('roll'), kwargs.get('yaw')
+            qw, qx, qy, qz = self.euler_to_quaternion(pitch, roll, yaw)
+        ned_n, ned_e, ned_d = self.ecef_to_ned(x, y, z)
         point = {
             "ned_n": ned_n,
             "ned_e": ned_e,
@@ -281,42 +291,84 @@ class UEVisualizer(VisualizerBase):
         with self.lock:
             self.trajectory.append(point)
         
-    def visualize_from_csv(self, csv_file, frequency=100):
+    def visualize_from_csv(self, csv_file, output_from='py', frequency=100):
         self.offline_mode = True
         # 清空现有轨迹
         self.trajectory = deque()
         # 设置参考点为最后一个点
         df = pd.read_csv(csv_file)
         last_row = df.iloc[-1]
-        self.set_preference_point(
-            last_row['lon_deg'],
-            last_row['lat_deg'],
-            last_row['altitude_ft']
-        )
-
-        required = ['time', 'altitude_ft', 'lat_deg', 'lon_deg', 'vc_kts', 'roll', 'pitch', 'yaw']
+        if output_from == 'py':
+            self.set_preference_point(
+                latitude=last_row['lat_deg'],
+                longitude=last_row['lon_deg'],
+                altitude=last_row['altitude_ft']
+            )
+        else:
+            self.set_preference_point(
+                latitude=last_row['Latitude Geodetic (deg)'],
+                longitude=last_row['Longitude (deg)'],
+                altitude=last_row['Altitude ASL (ft)']
+            )
+        if output_from == 'py':
+            required = ['time', 'altitude_ft', 'lat_deg', 'lon_deg', 'roll', 'pitch', 'yaw']
+            df['time'] = pd.to_numeric(df['time'], errors='coerce')
+            df = df.dropna(subset=['time'])
+        else:
+            required = ['Time', 'X_{ECEF} (ft)', 'Y_{ECEF} (ft)', 'Z_{ECEF} (ft)', 
+                        'Q(1)_{LOCAL}', 'Q(2)_{LOCAL}', 'Q(3)_{LOCAL}', 'Q(4)_{LOCAL}',
+                        'Latitude Geodetic (deg)', 'Longitude (deg)', 'Altitude ASL (ft)']
+            df['Time'] = pd.to_numeric(df['Time'], errors='coerce')
+            df = df.dropna(subset=['Time'])
         for key in required:
             if key not in df.columns:
                 raise ValueError(f"CSV 缺少必要列: {key}")
-        df['time'] = pd.to_numeric(df['time'], errors='coerce')
-        df = df.dropna(subset=['time'])
 
         last_time = None
         time_interval = 1.0 / frequency
         count = 0
         for _, row in df.iterrows():
             count += 1
-            time_val = row['time']
-            latitude = row['lat_deg']
-            longitude = row['lon_deg']
-            altitude = row['altitude_ft']
-            roll = row['roll']
-            pitch = row['pitch']
-            yaw = row['yaw']
-            if last_time is None or (time_val - last_time) >= time_interval:
-                last_time = time_val
-                self.process_data(longitude, latitude, altitude, roll, pitch, yaw)
-                print(f"(UE)已加载数据{count}/{len(df)}: time={time_val:.2f}, lat={latitude:.4f}, lon={longitude:.4f}, alt={altitude:.1f}")
+            if output_from == 'py':
+                time_val = row['time']
+                latitude = row['lat_deg']
+                longitude = row['lon_deg']
+                altitude = row['altitude_ft']
+                roll = row['roll']
+                pitch = row['pitch']
+                yaw = row['yaw']
+                if last_time is None or (time_val - last_time) >= time_interval:
+                    last_time = time_val
+                    self.process_data(longitude=longitude, latitude=latitude, altitude=altitude, roll=roll, pitch=pitch, yaw=yaw)
+                    print(f"(UE)已加载数据{count}/{len(df)}: time={time_val:.2f}, lat={latitude:.4f}, lon={longitude:.4f}, alt={altitude:.1f}")
+            else:
+                time_val = row['Time']
+                x = row['X_{ECEF} (ft)'] * 0.3048
+                y = row['Y_{ECEF} (ft)'] * 0.3048
+                z = row['Z_{ECEF} (ft)'] * 0.3048
+                qw = row['Q(1)_{LOCAL}']
+                qx = row['Q(2)_{LOCAL}']
+                qy = row['Q(3)_{LOCAL}']
+                qz = row['Q(4)_{LOCAL}']
+                latitude = row['Latitude Geodetic (deg)']
+                longitude = row['Longitude (deg)']
+                altitude = row['Altitude ASL (ft)']
+                if last_time is None or (time_val - last_time) >= time_interval:
+                    last_time = time_val
+                    self.process_data(
+                        output_from='xml',
+                        longitude=longitude,
+                        latitude=latitude,
+                        altitude=altitude,
+                        qw=qw,
+                        qx=qx,
+                        qy=qy,
+                        qz=qz,
+                        x=x,
+                        y=y,
+                        z=z
+                    )
+                    print(f"(UE)已加载数据{count}/{len(df)}: Time={time_val:.2f}, lat={latitude:.4f}, lon={longitude:.4f}, alt={altitude:.1f}")
         # 后续没有数据添加，队列为空可退出线程
         self.wait_data = False
 
@@ -393,4 +445,5 @@ if __name__ == "__main__":
     ue_vis = UEVisualizer()
     # 选择数据源：udp 或 csv 文件路径
     # ue_vis.start(source="c310_teleop.csv")
-    ue_vis.start(source="udp")
+    ue_vis.start(source="v0_landing.csv", output_from='xml')
+    # ue_vis.start(source="udp")
