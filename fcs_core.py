@@ -1,6 +1,7 @@
 import jsbsim
 import pandas as pd
 import queue
+import time
 
 class AircraftSimulation:
     def __init__(self, max_time=1000.0, sim_frequency=100, init_xml="./lyj_init.xml", log_csv="c310_demo.csv", broadcaster=None):
@@ -110,10 +111,12 @@ class AircraftSimulation:
             print(msg)
 
     # 仿真循环
-    def run_simulation(self, initial_work="initial_work1"):
+    def run_simulation(self, initial_work="initial_work1", real_time_sync=False):
         # 初始化
         if initial_work == "initial_work1":
             self.initial_work1()
+        sim_start_time = self.sim_time
+        wall_start_time = time.perf_counter()
         while self.sim_time < self.max_time:
             self.fdm.run()
             self.sim_time = self.fdm.get_sim_time()
@@ -132,6 +135,14 @@ class AircraftSimulation:
 
             self.log_state()
 
+            # 仿真和可视化实时同步
+            if real_time_sync:
+                target_wall_elapsed = self.sim_time - sim_start_time
+                actual_wall_elapsed = time.perf_counter() - wall_start_time
+                sleep_time = target_wall_elapsed - actual_wall_elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+
         # 保存 CSV
         df = pd.DataFrame(self.log_data)
         df.to_csv(self.log_csv, index=False)
@@ -144,7 +155,7 @@ if __name__ == "__main__":
     from flight_visualizer import PlotVisualizer, SimDataSender
     # 设置仿真频率
     FREQUENCY = 100
-    # 对可视化数据进行降采样
+    # 对可视化数据进行降采样，每N帧发送一次
     bro = SimDataSender(sim_frequency=FREQUENCY, N=20)
     sim = AircraftSimulation(max_time=100.0, sim_frequency=FREQUENCY, broadcaster=bro)
 

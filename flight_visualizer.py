@@ -269,7 +269,7 @@ class UEVisualizer(VisualizerBase):
         longitude, latitude, altitude = kwargs.get('longitude'), kwargs.get('latitude'), kwargs.get('altitude')
         if not self.ref_point:
             # 在线可视化将参考点设置为第一个点
-            self.set_preference_point(longitude, latitude, altitude)
+            self.set_preference_point(longitude=longitude, latitude=latitude, altitude=altitude)
             return
         if output_from == 'xml':
             qw, qx, qy, qz = kwargs.get('qw'), kwargs.get('qx'), kwargs.get('qy'), kwargs.get('qz')
@@ -447,5 +447,5 @@ if __name__ == "__main__":
     ue_vis = UEVisualizer()
     # 选择数据源：udp 或 csv 文件路径
     # ue_vis.start(source="c310_teleop.csv")
-    ue_vis.start(source="v0_landing.csv", output_from='xml')
-    # ue_vis.start(source="udp")
+    # ue_vis.start(source="v0_landing.csv", output_from='xml')
+    ue_vis.start(source="udp")

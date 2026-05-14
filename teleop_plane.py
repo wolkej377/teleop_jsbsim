@@ -16,6 +16,7 @@ from flight_visualizer import PlotVisualizer, SimDataSender
 # 全局变量，存储当前的键盘状态（最新输入）
 current_key = None
 lock = threading.Lock()
+KEY_POLL_INTERVAL = 0.05
 
 class FlightVariable:
     def __init__(self, simulation, name, min=0.0, max=1.0, step=0.05, initial=0.0):
@@ -132,18 +133,18 @@ def set_controls_to_jsbsim():
                     print(f"速度保持开关：{('关闭' if airspeed_hold.value==0 else '开启')} 当前值:{airspeed_hold.value}")
                 elif key == 'Key.up':
                     elevator.increase()
-                    print(f"升降舵动作：上 当前值:{elevator.value:.2f}")
+                    print(f"升降舵动作：下 当前值:{elevator.value:.2f}")
                 elif key == 'Key.down':
                     elevator.decrease()
-                    print(f"升降舵动作：下 当前值:{elevator.value:.2f}")
+                    print(f"升降舵动作：上 当前值:{elevator.value:.2f}")
                 elif key == 'Key.left':
                     aileron.decrease()
                     print(f"副翼动作：左滚转 当前值:{aileron.value:.2f}")
                 elif key == 'Key.right':
                     aileron.increase()
                     print(f"副翼动作：右滚转 当前值:{aileron.value:.2f}")
-        # 控制频率20hz
-        time.sleep(0.05)
+        # 这里只是键盘控制线程的轮询间隔，不影响仿真主循环
+        time.sleep(KEY_POLL_INTERVAL)
 
 def get_states_from_jsbsim():
     pass
@@ -155,7 +156,7 @@ def main():
     key_t.start()
     in_t.start()
     out_t.start()
-    sim.run_simulation(initial_work="initial_work1")
+    sim.run_simulation(initial_work="initial_work1", real_time_sync=True)
 
 if __name__ == "__main__":
     main()
